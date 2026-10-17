@@ -1,9 +1,9 @@
 package competition.subsystems;
 
 import competition.BaseCompetitionTest;
-import org.junit.jupiter.api.MethodOrderer;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestMethodOrder;
+import org.junit.FixMethodOrder;
+import org.junit.Test;
+import org.junit.runners.MethodSorters;
 import org.mockito.Mockito;
 import xbot.common.advantage.DataFrameRefreshable;
 import xbot.common.command.BaseSubsystem;
@@ -16,10 +16,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.fail;
 
-@TestMethodOrder(MethodOrderer.MethodName.class) // Prevent parallel running of tests
+@FixMethodOrder(MethodSorters.NAME_ASCENDING) // Prevent parallel running of tests
 public class GenericSubsystemTest extends BaseCompetitionTest {
 
     @Test

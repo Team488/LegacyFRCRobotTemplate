@@ -7,7 +7,7 @@
 
 package competition;
 
-import org.wpilib.framework.RobotBase;
+import edu.wpi.first.wpilibj.RobotBase;
 
 /**
  * Do NOT add any static variables to this class, or any initialization at all.

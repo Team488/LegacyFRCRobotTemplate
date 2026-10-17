@@ -4,7 +4,7 @@ pluginManagement {
     repositories {
         mavenLocal()
         gradlePluginPortal()
-        String frcYear = '2027_alpha7'
+        String frcYear = '2025'
         File frcHome
         if (OperatingSystem.current().isWindows()) {
             String publicFolder = System.getenv('PUBLIC')
@@ -20,26 +20,17 @@ pluginManagement {
         }
         def frcHomeMaven = new File(frcHome, 'maven')
         maven {
-            name = 'frcHome'
-            url = frcHomeMaven
+            name 'frcHome'
+            url frcHomeMaven
         }
     }
 }
 
 // Composite build support for local SeriouslyCommonLib development
-// Only activates when explicitly requested via any of:
-//   -DuseLocalCommonLib=true, USE_LOCAL_COMMON_LIB=true (env), or useLocalCommonLib=true in a
-//   gitignored local.properties file next to this one (the reliable option for IDEs like VS Code / IntelliJ,
-//   which don't pass command-line flags or reliably hand env vars to their Gradle daemon).
+// Only activates when explicitly requested via -DuseLocalCommonLib=true or USE_LOCAL_COMMON_LIB=true
 def localCommonLibPath = file('../SeriouslyCommonLib')
-def localProps = new Properties()
-def localPropsFile = file('local.properties')
-if (localPropsFile.exists()) {
-    localPropsFile.withInputStream { localProps.load(it) }
-}
 def useLocalCommonLib = System.getProperty('useLocalCommonLib', 'false').toBoolean() ||
-        System.getenv('USE_LOCAL_COMMON_LIB') == 'true' ||
-        localProps.getProperty('useLocalCommonLib', 'false').toBoolean()
+System.getenv('USE_LOCAL_COMMON_LIB') == 'true'
 
 if (useLocalCommonLib) {
     if (localCommonLibPath.exists()) {
