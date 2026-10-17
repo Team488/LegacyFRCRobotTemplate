@@ -1,0 +1,219 @@
+plugins {
+    id "java"
+    id "application"
+    id "org.wpilib.GradleRIO" version "2027.0.0-alpha-7"
+    id 'checkstyle'
+    id 'jacoco'
+    id 'org.hidetake.ssh' version "2.9.0"
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+}
+
+// MapleSim currently targets WPILib 2026; use the basic simulator on 2027.
+sourceSets.main.java {
+    exclude 'competition/simulation/MapleSimulator.java'
+    exclude 'competition/injection/modules/MapleSimulatorModule.java'
+}
+
+// When in doubt, use the latest version from
+// https://dev.azure.com/Team488/Team%20488%20Builds/_artifacts/feed/XBot
+def SeriouslyCommonLibVersion = '20261010.5'
+
+def ROBOT_MAIN_CLASS = "competition.Main"
+
+// Define the SystemCore target and deployable application.
+// This is added by GradleRIO's backing project DeployUtils.
+deploy {
+    targets {
+        systemcore(getTargetTypeClass('SystemCore')) {
+            // Team number is loaded either from the .wpilib/wpilib_preferences.json
+            // or from command line. If not found an exception will be thrown.
+            // You can use getTeamOrDefault(team) instead of getTeamNumber if you
+            // want to store a team number in this file.
+            team = project.wpilib.getTeamNumber()
+            debug = project.wpilib.getDebugOrDefault(false)
+
+            artifacts {
+                // First part is artifact name, 2nd is artifact type
+                // getTargetTypeClass is a shortcut to get the class type using a string
+
+                frcJava(getArtifactTypeClass('WPILibJavaArtifact')) {
+                }
+
+                // Static files artifact
+                frcStaticFileDeploy(getArtifactTypeClass('FileTreeArtifact')) {
+                    files = project.fileTree('src/main/deploy')
+                    directory = '/home/systemcore/deploy'
+                    deleteOldFiles = true
+                }
+            }
+        }
+    }
+}
+
+def deployArtifact = deploy.targets.systemcore.artifacts.frcJava
+
+// Set this to true to enable desktop support.
+def includeDesktopSupport = false
+
+// Maven central needed for JUnit
+repositories {
+    mavenCentral()
+
+    mavenLocal()
+
+    // Azure Artifacts feed for SeriouslyCommonLib
+    maven {
+        url = "https://pkgs.dev.azure.com/Team488/2ef6eee3-1df0-441a-9af8-5edc5c3cb203/_packaging/2b1ba3b9-5dd7-47c4-ab96-d5c0a1d8af48/maven/v1"
+        name = "AzureArtifacts"
+    }
+}
+
+// Defining my dependencies. In this case, WPILib (+ friends), and vendor libraries.
+// Also defines JUnit 5.
+dependencies {
+    annotationProcessor wpi.java.deps.wpilibAnnotations()
+    implementation wpi.java.deps.wpilib()
+    implementation wpi.java.vendor.java()
+
+    systemcoreDebug wpi.java.deps.wpilibJniDebug(wpi.platforms.systemcore)
+    systemcoreDebug wpi.java.vendor.jniDebug(wpi.platforms.systemcore)
+
+    systemcoreRelease wpi.java.deps.wpilibJniRelease(wpi.platforms.systemcore)
+    systemcoreRelease wpi.java.vendor.jniRelease(wpi.platforms.systemcore)
+
+    nativeDebug wpi.java.deps.wpilibJniDebug(wpi.platforms.desktop)
+    nativeDebug wpi.java.vendor.jniDebug(wpi.platforms.desktop)
+    simulationDebug wpi.sim.enableDebug()
+
+    nativeRelease wpi.java.deps.wpilibJniRelease(wpi.platforms.desktop)
+    nativeRelease wpi.java.vendor.jniRelease(wpi.platforms.desktop)
+    simulationRelease wpi.sim.enableRelease()
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.11.4'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
+    testImplementation "org.mockito:mockito-core:3.12.4"
+
+    // SeriouslyCommonLib - use the 2027 checkout with -DuseLocalCommonLib=true (see settings.gradle)
+    implementation "xbot.common:SeriouslyCommonLib:${SeriouslyCommonLibVersion}"
+
+    implementation 'org.json:json:20230227'
+
+    implementation 'org.apache.logging.log4j:log4j-api:2.19.0'
+    implementation 'org.apache.logging.log4j:log4j-core:2.19.0'
+
+    implementation 'com.google.dagger:dagger:2.44.2'
+    annotationProcessor 'com.google.dagger:dagger-compiler:2.44.2'
+    testAnnotationProcessor 'com.google.dagger:dagger-compiler:2.44.2'
+
+    def akitJson = new groovy.json.JsonSlurper().parseText(new File(projectDir.getAbsolutePath() + "/vendordeps/AdvantageKit.json").text)
+    annotationProcessor "org.littletonrobotics.akit:akit-autolog:$akitJson.version"
+}
+
+wpi.sim.addGui().defaultEnabled = true
+wpi.sim.addDriverstation()
+
+jar {
+    manifest org.wpilib.gradlerio.GradleRIOPlugin.javaManifest(ROBOT_MAIN_CLASS)
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}
+
+// Configure jar and deploy tasks
+application {
+    mainClass = ROBOT_MAIN_CLASS
+}
+deployArtifact.configureApplication(application)
+wpi.java.configureApplication(application)
+wpi.java.configureTestTasks(test)
+
+// Configure string concat to always inline compile
+tasks.withType(JavaCompile) {
+    options.compilerArgs.add '-XDstringConcat=inline'
+}
+
+// Our custom gradle stuff after this line
+
+remotes {
+    rio {
+        host = 'robot.local'
+        user = 'systemcore'
+        knownHosts = allowAnyHosts
+    }
+}
+
+task('copyResources') {
+    doLast {
+        def localCommonLib = file('../SeriouslyCommonLib')
+        if (!localCommonLib.exists()) {
+            throw new GradleException("copyResources task requires local SeriouslyCommonLib. Clone it to ../SeriouslyCommonLib")
+        }
+        ssh.run {
+            session(remotes.rio) {
+                // execute 'mkdir ~/449_resources', ignoreError: true
+                // execute 'mkdir /488Logs', ignoreError: true
+                put from: fileTree('../SeriouslyCommonLib/lib/log4jConfig/log4j.xml'), into: '/home/systemcore/'
+                //execute ". /etc/profile.d/natinst-path.sh; /usr/local/frc/bin/frcKillRobot.sh -t -r", ignoreError: true
+            }
+        }
+    }
+}
+
+checkstyle {
+    toolVersion = '10.6.0'
+    configFile = file('config/checkstyle/checkstyle.xml')
+}
+
+// Configure basedir for all checkstyle tasks (main, test, and custom)
+tasks.withType(Checkstyle) {
+    configProperties.basedir = file('config/checkstyle')
+}
+
+task checkstyle(type: Checkstyle) {
+    source = sourceSets.main.allJava
+    configProperties.basedir = file('config/checkstyle')
+
+    // Empty classpath
+    classpath = files()
+}
+
+test {
+    useJUnitPlatform()
+    reports {
+        junitXml.required = true
+    }               
+}
+
+// Configuration for AdvantageKit
+task(replayWatch, type: JavaExec) {
+    mainClass = "org.littletonrobotics.junction.ReplayWatch"
+    classpath = sourceSets.main.runtimeClasspath
+}
+
+// Configuration for Electrical Report
+task(electricalReport, type: JavaExec) {
+    mainClass = "electrical.report.Main"
+    classpath = sourceSets.main.runtimeClasspath
+}
+
+tasks.withType(Test) {
+    testLogging.showStandardStreams = true
+    
+    testLogging.events 'passed', 'skipped', 'failed'
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+    }
+}
+
+// always generate the coverage report after the tests run
+test.finalizedBy { jacocoTestReport }
